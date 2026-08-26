@@ -1,106 +1,214 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import API_URL from '../config';
+import { useAuth } from '../context/AuthContext';
 
-const ManageSorteo = () => {
+const ManageResultados = () => {
+  const { tieneRol } = useAuth();
+  const puedeEscribir = tieneRol('admin', 'operador');
+
+  // premio.cantidad_balotas representa el NÚMERO DE BALOTAS (bolas físicas),
+  // no la cantidad de dígitos del input. Mapeo:
+  //  - 4 balotas -> GANA SIEMPRE: 4 dígitos totales, SIN serie
+  //  - 6 balotas -> SECO/otros: 4 dígitos de número + 3 dígitos de serie
+  //                 (5ta balota = 2 dígitos, 6ta balota = 1 dígito) = 7 dígitos totales
+  const getLongitudTotal = (premio) => {
+    if (premio.cantidad_balotas === 6) return 7; // 4 número + 3 serie
+    return premio.cantidad_balotas; // ej. 4 balotas = 4 dígitos, sin serie
+  };
+
+  // Convierte el texto de "valor" que viene del backend (ej. "30 MILLONES")
+  // en un número comparable, para poder ordenar los premios de menor a
+  // mayor sin depender del orden en que vengan desde el plan.
+  const parseValorNumerico = (valor) => {
+    if (!valor) return 0;
+    const digits = String(valor).replace(/[^\d]/g, '');
+    return digits ? parseInt(digits, 10) : 0;
+  };
+
   const [sorteos, setSorteos] = useState([]);
-  const [planes, setPlanes] = useState([]);
+  const [selectedSorteoId, setSelectedSorteoId] = useState('');
+
+  // Datos del sorteo seleccionado
+  const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(false);
-  
-  // Estado para el formulario (Crear/Editar)
-  const [formData, setFormData] = useState({
-    id: null,
-    numero_sorteo: '',
-    fecha: '',
-    plan_id: ''
-  });
-  const [isEditing, setIsEditing] = useState(false);
+
+  // Control de inputs (Nuevo ingreso)
+  const [currentInput, setCurrentInput] = useState({});
+
+  // Control de Edición
+  const [editingPremioId, setEditingPremioId] = useState(null);
+  const [editValue, setEditValue] = useState('');
 
   useEffect(() => {
-    fetchData();
+    fetchSorteos();
   }, []);
 
-  const fetchData = async () => {
+  const fetchSorteos = () => {
+    axios.get(`${API_URL}/sorteos/`)
+      .then(res => setSorteos(res.data))
+      .catch(err => console.error(err));
+  };
+
+  // Función para formatear la fecha correctamente en Colombia
+  const formatearFechaCO = (fechaStr) => {
+    if (!fechaStr) return '';
+    // Agregamos hora para evitar conversión a UTC que resta un día
+    const fecha = new Date(`${fechaStr}T00:00:00`);
+    return fecha.toLocaleDateString('es-CO');
+  };
+
+  const loadSorteoData = async (sorteoId) => {
+    if(!sorteoId) return;
     setLoading(true);
+    setEditingPremioId(null);
     try {
-      const [sorteosRes, planesRes] = await Promise.all([
-        axios.get(`${API_URL}/sorteos/`),
-        axios.get(`${API_URL}/planes/`)
-      ]);
-      setSorteos(sorteosRes.data);
-      setPlanes(planesRes.data);
-    } catch (err) {
-      console.error("Error cargando datos:", err);
+      // 1. Obtener info básica del Sorteo
+      const sorteoRes = await axios.get(`${API_URL}/sorteos/${sorteoId}`);
+      const sorteo = sorteoRes.data;
+
+      // 2. Obtener el Plan de Premios
+      const planRes = await axios.get(`${API_URL}/planes/${sorteo.plan_id}`);
+      const plan = planRes.data;
+
+      // 3. Obtener resultados PÚBLICOS (que ya tienen los ganadores)
+      // Nota: numero_sorteo ahora es string, funciona igual en la URL
+      const resultadosRes = await axios.get(`${API_URL}/sorteos/${sorteo.numero_sorteo}/publico`);
+      const registrados = resultadosRes.data.resultados || [];
+
+      // 4. Mapear estado
+      const premiosStatus = plan.premios.map(premio => {
+        // Buscamos si ya existe resultado para este premio (por ID o Titulo)
+        const resultadoExistente = registrados.find(r => r.premio_id === premio.id || r.premio === premio.titulo);
+        return {
+          ...premio,
+          yaJugado: !!resultadoExistente,
+          numeroGanador: resultadoExistente ? resultadoExistente.numero_ganador : null
+        };
+      });
+
+      // 5. Ordenar de forma consistente: agrupados por valor (de menor a
+      // mayor) y, dentro de un mismo valor, por el número al final del
+      // título (Ej. "SECO DE PERLA 1", "SECO DE PERLA 2"...).
+      premiosStatus.sort((a, b) => {
+        const diffValor = parseValorNumerico(a.valor) - parseValorNumerico(b.valor);
+        if (diffValor !== 0) return diffValor;
+        const nA = a.titulo.match(/(\d+)/);
+        const nB = b.titulo.match(/(\d+)/);
+        return (nA ? parseInt(nA[0], 10) : 0) - (nB ? parseInt(nB[0], 10) : 0);
+      });
+
+      setDashboardData({ sorteo, premios: premiosStatus });
+
+    } catch (error) {
+      console.error(error);
+      alert("Error cargando datos del sorteo");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSubmit = async () => {
-    // Validación básica
-    if (!formData.numero_sorteo || !formData.fecha || !formData.plan_id) {
-      return alert("Por favor complete todos los campos");
+  const handleSorteoChange = (e) => {
+    const id = e.target.value;
+    setSelectedSorteoId(id);
+    loadSorteoData(id);
+  };
+
+  // --- CREAR ---
+  const handleInputChange = (premioId, value) => {
+    setCurrentInput({ ...currentInput, [premioId]: value });
+  };
+
+  const guardarResultado = async (premio) => {
+    const numero = currentInput[premio.id];
+    if (!numero) return alert("Ingrese un número");
+
+    const longitudTotal = getLongitudTotal(premio);
+    if (numero.length < longitudTotal) {
+      return alert(`El premio requiere ${longitudTotal} cifras`);
     }
 
     try {
-      if (isEditing) {
-        await axios.put(`${API_URL}/sorteos/${formData.id}`, formData);
-        alert('Sorteo actualizado correctamente');
-      } else {
-        await axios.post(`${API_URL}/sorteos/`, formData);
-        alert('Sorteo creado correctamente');
-      }
-      resetForm();
-      fetchData();
+      await axios.post(`${API_URL}/resultados/`, {
+        sorteo_id: selectedSorteoId,
+        premio_titulo: premio.titulo,
+        numeros_ganadores: numero
+      });
+
+      loadSorteoData(selectedSorteoId);
+      setCurrentInput({ ...currentInput, [premio.id]: '' });
     } catch (error) {
-      alert('Error: ' + (error.response?.data?.detail || error.message));
+      alert("Error: " + (error.response?.data?.detail || error.message));
     }
   };
 
-  const handleDelete = async (id) => {
-    if (window.confirm("¿Está seguro de eliminar este sorteo? Se perderán los resultados asociados.")) {
-      try {
-        await axios.delete(`${API_URL}/sorteos/${id}`);
-        fetchData();
-      } catch (error) {
-        alert("Error al eliminar");
-      }
+  // --- BORRAR ---
+  const borrarResultado = async (premio) => {
+    if(!window.confirm(`¿Estás seguro de borrar el resultado de ${premio.titulo}?`)) return;
+
+    try {
+      // Usamos endpoint: DELETE /resultados/{sorteo_id}/{premio_id}
+      await axios.delete(`${API_URL}/resultados/${selectedSorteoId}/${premio.id}`);
+      loadSorteoData(selectedSorteoId);
+    } catch (error) {
+      alert("Error borrando: " + (error.response?.data?.detail || error.message));
     }
   };
 
-  const prepareEdit = (sorteo) => {
-    setFormData({
-      id: sorteo.id,
-      numero_sorteo: sorteo.numero_sorteo,
-      fecha: sorteo.fecha,
-      plan_id: sorteo.plan_id
-    });
-    setIsEditing(true);
-    window.scrollTo(0, 0);
+  // --- EDITAR ---
+  const iniciarEdicion = (premio) => {
+    setEditingPremioId(premio.id);
+    setEditValue(premio.numeroGanador);
   };
 
-  const resetForm = () => {
-    setFormData({ id: null, numero_sorteo: '', fecha: '', plan_id: '' });
-    setIsEditing(false);
+  const cancelarEdicion = () => {
+    setEditingPremioId(null);
+    setEditValue('');
   };
 
-  // Función para encontrar el nombre del plan por su ID
-  const getPlanName = (id) => {
-    const plan = planes.find(p => p.id === id);
-    return plan ? plan.nombre : `ID: ${id}`;
+  const guardarEdicion = async (premio) => {
+    const longitudTotal = getLongitudTotal(premio);
+    if (editValue.length < longitudTotal) {
+        return alert(`El premio requiere ${longitudTotal} cifras`);
+    }
+
+    try {
+        // Usamos endpoint: PUT /resultados/{sorteo_id}/{premio_id}?numeros_nuevos=...
+        await axios.put(`${API_URL}/resultados/${selectedSorteoId}/${premio.id}?numeros_nuevos=${editValue}`);
+        setEditingPremioId(null);
+        loadSorteoData(selectedSorteoId);
+    } catch (error) {
+        alert("Error editando: " + (error.response?.data?.detail || error.message));
+    }
   };
 
-  // FUNCIÓN AUXILIAR PARA LA TABLA (Misma lógica que TVPage para evitar error de -1 día)
-  const formatearFechaTabla = (fechaStr) => {
-    if (!fechaStr) return '';
-    const fecha = new Date(`${fechaStr}T00:00:00`);
-    return fecha.toLocaleDateString('es-CO');
+  // --- UTILIDAD DE FORMATO VISUAL ---
+  const renderNumeroFormateado = (numero) => {
+    if (!numero) return "";
+    let principal = numero;
+    let serie = "";
+
+    if (numero.length > 4) {
+        const corte = numero.length - 3;
+        principal = numero.substring(0, corte);
+        serie = numero.substring(corte);
+    }
+
+    return (
+        <div className="result-display-container">
+            <span className="result-main">{principal}</span>
+            {serie && (
+                <>
+                    <span className="result-separator">-</span>
+                    <span className="result-serie">{serie}</span>
+                </>
+            )}
+        </div>
+    );
   };
 
-  // --- ORDEN: del sorteo más reciente al más antiguo (por fecha del sorteo).
-  // Si dos sorteos comparten fecha, se desempata por id descendente (el más
-  // recién creado primero). No se muta el estado "sorteos" original, solo se
-  // ordena una copia para mostrarla en la tabla.
+  // --- ORDEN: del sorteo más reciente al más antiguo (por fecha), con
+  // desempate por id descendente. No muta el estado "sorteos" original.
   const sorteosOrdenados = [...sorteos].sort((a, b) => {
     const diffFecha = new Date(b.fecha) - new Date(a.fecha);
     if (diffFecha !== 0) return diffFecha;
@@ -109,323 +217,119 @@ const ManageSorteo = () => {
 
   return (
     <div className="admin-container">
-      <h1 className="admin-title">{isEditing ? "Editar Sorteo" : "Programar Nuevo Sorteo"}</h1>
-
-      {/* FORMULARIO DE CARGA */}
-      <div className="premios-grid" style={{ 
-        gridTemplateColumns: '1fr 1fr 1fr auto', 
-        padding: '20px', 
-        marginBottom: '30px' 
-      }}>
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label>No. Sorteo</label>
-          <input 
-            type="text" 
-            className="form-input"
-            value={formData.numero_sorteo}
-            onChange={e => setFormData({...formData, numero_sorteo: e.target.value})}
-          />
-        </div>
-
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label>Fecha</label>
-          <input 
-            type="date" 
-            className="form-input"
-            value={formData.fecha}
-            onChange={e => setFormData({...formData, fecha: e.target.value})}
-          />
-        </div>
-
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label>Plan de Premios</label>
-          <select 
-            className="form-select"
-            value={formData.plan_id}
-            onChange={e => setFormData({...formData, plan_id: e.target.value})}
-          >
-            <option value="">-- Seleccione --</option>
-            {planes.map(plan => (
-              <option key={plan.id} value={plan.id}>{plan.nombre}</option>
-            ))}
-          </select>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '10px' }}>
-          <button className="btn btn-primary" onClick={handleSubmit}>
-            {isEditing ? "Guardar" : "Crear"}
-          </button>
-          {isEditing && (
-            <button className="btn btn-secondary" onClick={resetForm}>X</button>
-          )}
-        </div>
+      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+        <h1 className="admin-title">Gestión de Resultados</h1>
+        <button className="btn btn-secondary" onClick={fetchSorteos}>↻ Refrescar</button>
       </div>
 
-      <h2 className="admin-title" style={{ fontSize: '1.8rem' }}>Historial de Sorteos</h2>
-      
-      {loading ? (
-        <p style={{textAlign: 'center', fontSize: '1.2rem'}}>Cargando sorteos...</p>
-      ) : (
-        <div style={{ 
-          maxHeight: '500px', 
-          overflowY: 'auto', 
-          border: '1px solid rgba(255,255,255,0.1)',
-          borderRadius: '8px' 
-        }}>
+      {!puedeEscribir && (
+        <p style={{ textAlign: 'center', color: '#ffb347', marginBottom: '15px' }}>
+          Tu usuario es de solo consulta: puedes ver los resultados, pero no registrarlos ni editarlos.
+        </p>
+      )}
+
+      <div className="form-group" style={{maxWidth: '500px'}}>
+        <label>Seleccionar Sorteo Activo:</label>
+        <select className="form-select" value={selectedSorteoId} onChange={handleSorteoChange}>
+          <option value="">-- Seleccione Sorteo --</option>
+          {sorteosOrdenados.map(s => (
+            <option key={s.id} value={s.id}>
+              No. {s.numero_sorteo} ({formatearFechaCO(s.fecha)})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {loading && <p>Cargando datos...</p>}
+
+      {dashboardData && (
+        <>
+          <h3>Plan: {dashboardData.sorteo.plan_id}</h3>
+
           <table className="admin-table">
-            <thead style={{ position: 'sticky', top: 0, background: '#1b3b80', zIndex: 5 }}>
+            <thead>
               <tr>
-                <th>No. Sorteo</th>
-                <th>Fecha de Juego</th>
-                <th>Plan Asociado</th>
-                <th style={{ textAlign: 'center' }}>Acciones</th>
+                <th style={{width: '30%'}}>Premio</th>
+                <th style={{width: '15%'}}>Valor</th>
+                <th style={{width: '15%'}}>Estado</th>
+                <th style={{width: '20%'}}>Número  -  Serie</th>
+                <th style={{width: '20%'}}>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {sorteosOrdenados.length === 0 ? (
-                <tr><td colSpan="4" style={{ textAlign: 'center' }}>No hay sorteos registrados</td></tr>
-              ) : (
-                sorteosOrdenados.map((s) => (
-                  <tr key={s.id}>
-                    <td><strong style={{color: 'var(--color-oro)'}}>{s.numero_sorteo}</strong></td>
-                    <td>{formatearFechaTabla(s.fecha)}</td>
-                    <td>{getPlanName(s.plan_id)}</td>
-                    <td style={{ textAlign: 'center' }}>
-                      <button 
-                        onClick={() => prepareEdit(s)} 
-                        style={{ background: 'none', border: 'none', color: '#ffc107', cursor: 'pointer', fontSize: '1.2rem' }}
-                        title="Editar"
-                      >
-                        ✏️
-                      </button>
-                      <button 
-                        onClick={() => handleDelete(s.id)} 
-                        style={{ background: 'none', border: 'none', color: '#ff4d4d', cursor: 'pointer', fontSize: '1.2rem', marginLeft: '15px' }}
-                        title="Eliminar"
-                      >
-                        🗑️
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
+              {dashboardData.premios.map((premio) => {
+                const isEditing = editingPremioId === premio.id;
+
+                return (
+                <tr key={premio.id} className={premio.yaJugado ? "row-done" : "row-pending"}>
+                  <td className="td-title">{premio.titulo}</td>
+                  <td>{premio.valor}</td>
+
+                  <td>
+                    {premio.yaJugado ? (
+                      <span className="status-badge status-done">REGISTRADO</span>
+                    ) : (
+                      <span className="status-badge status-pending">PENDIENTE</span>
+                    )}
+                  </td>
+
+                  <td>
+                    {isEditing ? (
+                        <input
+                            type="text"
+                            className="form-input input-editing"
+                            autoFocus
+                            maxLength={getLongitudTotal(premio)}
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                        />
+                    ) : premio.yaJugado ? (
+                        renderNumeroFormateado(premio.numeroGanador)
+                    ) : puedeEscribir ? (
+                        <input
+                            type="text"
+                            className="form-input"
+                            style={{textAlign: 'center', letterSpacing: '5px'}}
+                            maxLength={getLongitudTotal(premio)}
+                            placeholder={"?".repeat(getLongitudTotal(premio))}
+                            value={currentInput[premio.id] || ''}
+                            onChange={(e) => handleInputChange(premio.id, e.target.value)}
+                        />
+                    ) : (
+                        <span style={{ color: '#666' }}>{"?".repeat(getLongitudTotal(premio))}</span>
+                    )}
+                  </td>
+
+                  <td>
+                    {!puedeEscribir ? (
+                        <span style={{ color: '#666', fontSize: '0.85rem' }}>Solo consulta</span>
+                    ) : isEditing ? (
+                        <div className="action-buttons">
+                            <button className="btn btn-success btn-sm" onClick={() => guardarEdicion(premio)}>💾</button>
+                            <button className="btn btn-secondary btn-sm" onClick={cancelarEdicion}>✖</button>
+                        </div>
+                    ) : premio.yaJugado ? (
+                        <div className="action-buttons">
+                            <button className="btn btn-primary btn-sm" onClick={() => iniciarEdicion(premio)}>✏️ Editar</button>
+                            <button className="btn btn-danger btn-sm" onClick={() => borrarResultado(premio)}>🗑️ Borrar</button>
+                        </div>
+                    ) : (
+                        <button
+                            className="btn btn-primary"
+                            onClick={() => guardarResultado(premio)}
+                        >
+                            Guardar
+                        </button>
+                    )}
+                  </td>
+                </tr>
+              )})}
             </tbody>
           </table>
-        </div>
+        </>
       )}
     </div>
   );
 };
 
-export default ManageSorteo;
-
-// import React, { useState, useEffect } from 'react';
-// import axios from 'axios';
-// import API_URL from '../config';
-
-// const ManageSorteo = () => {
-//   const [sorteos, setSorteos] = useState([]);
-//   const [planes, setPlanes] = useState([]);
-//   const [loading, setLoading] = useState(false);
-  
-//   // Estado para el formulario (Crear/Editar)
-//   const [formData, setFormData] = useState({
-//     id: null,
-//     numero_sorteo: '',
-//     fecha: '',
-//     plan_id: ''
-//   });
-//   const [isEditing, setIsEditing] = useState(false);
-
-//   useEffect(() => {
-//     fetchData();
-//   }, []);
-
-//   const fetchData = async () => {
-//     setLoading(true);
-//     try {
-//       const [sorteosRes, planesRes] = await Promise.all([
-//         axios.get(`${API_URL}/sorteos/`),
-//         axios.get(`${API_URL}/planes/`)
-//       ]);
-//       setSorteos(sorteosRes.data);
-//       setPlanes(planesRes.data);
-//     } catch (err) {
-//       console.error("Error cargando datos:", err);
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
-
-//   const handleSubmit = async () => {
-//     // Validación básica
-//     if (!formData.numero_sorteo || !formData.fecha || !formData.plan_id) {
-//       return alert("Por favor complete todos los campos");
-//     }
-
-//     try {
-//       if (isEditing) {
-//         await axios.put(`${API_URL}/sorteos/${formData.id}`, formData);
-//         alert('Sorteo actualizado correctamente');
-//       } else {
-//         await axios.post(`${API_URL}/sorteos/`, formData);
-//         alert('Sorteo creado correctamente');
-//       }
-//       resetForm();
-//       fetchData();
-//     } catch (error) {
-//       alert('Error: ' + (error.response?.data?.detail || error.message));
-//     }
-//   };
-
-//   const handleDelete = async (id) => {
-//     if (window.confirm("¿Está seguro de eliminar este sorteo? Se perderán los resultados asociados.")) {
-//       try {
-//         await axios.delete(`${API_URL}/sorteos/${id}`);
-//         fetchData();
-//       } catch (error) {
-//         alert("Error al eliminar");
-//       }
-//     }
-//   };
-
-//   const prepareEdit = (sorteo) => {
-//     setFormData({
-//       id: sorteo.id,
-//       numero_sorteo: sorteo.numero_sorteo,
-//       fecha: sorteo.fecha,
-//       plan_id: sorteo.plan_id
-//     });
-//     setIsEditing(true);
-//     window.scrollTo(0, 0);
-//   };
-
-//   const resetForm = () => {
-//     setFormData({ id: null, numero_sorteo: '', fecha: '', plan_id: '' });
-//     setIsEditing(false);
-//   };
-
-//   // Función para encontrar el nombre del plan por su ID
-//   const getPlanName = (id) => {
-//     const plan = planes.find(p => p.id === id);
-//     return plan ? plan.nombre : `ID: ${id}`;
-//   };
-
-//   // FUNCIÓN AUXILIAR PARA LA TABLA (Misma lógica que TVPage para evitar error de -1 día)
-//   const formatearFechaTabla = (fechaStr) => {
-//     if (!fechaStr) return '';
-//     const fecha = new Date(`${fechaStr}T00:00:00`);
-//     return fecha.toLocaleDateString('es-CO');
-//   };
-
-//   return (
-//     <div className="admin-container">
-//       <h1 className="admin-title">{isEditing ? "Editar Sorteo" : "Programar Nuevo Sorteo"}</h1>
-
-//       {/* FORMULARIO DE CARGA */}
-//       <div className="premios-grid" style={{ 
-//         gridTemplateColumns: '1fr 1fr 1fr auto', 
-//         padding: '20px', 
-//         marginBottom: '30px' 
-//       }}>
-//         <div className="form-group" style={{ marginBottom: 0 }}>
-//           <label>No. Sorteo</label>
-//           <input 
-//             type="text" 
-//             className="form-input"
-//             value={formData.numero_sorteo}
-//             onChange={e => setFormData({...formData, numero_sorteo: e.target.value})}
-//           />
-//         </div>
-
-//         <div className="form-group" style={{ marginBottom: 0 }}>
-//           <label>Fecha</label>
-//           <input 
-//             type="date" 
-//             className="form-input"
-//             value={formData.fecha}
-//             onChange={e => setFormData({...formData, fecha: e.target.value})}
-//           />
-//         </div>
-
-//         <div className="form-group" style={{ marginBottom: 0 }}>
-//           <label>Plan de Premios</label>
-//           <select 
-//             className="form-select"
-//             value={formData.plan_id}
-//             onChange={e => setFormData({...formData, plan_id: e.target.value})}
-//           >
-//             <option value="">-- Seleccione --</option>
-//             {planes.map(plan => (
-//               <option key={plan.id} value={plan.id}>{plan.nombre}</option>
-//             ))}
-//           </select>
-//         </div>
-
-//         <div style={{ display: 'flex', alignItems: 'flex-end', gap: '10px' }}>
-//           <button className="btn btn-primary" onClick={handleSubmit}>
-//             {isEditing ? "Guardar" : "Crear"}
-//           </button>
-//           {isEditing && (
-//             <button className="btn btn-secondary" onClick={resetForm}>X</button>
-//           )}
-//         </div>
-//       </div>
-
-//       <h2 className="admin-title" style={{ fontSize: '1.8rem' }}>Historial de Sorteos</h2>
-      
-//       {loading ? (
-//         <p style={{textAlign: 'center', fontSize: '1.2rem'}}>Cargando sorteos...</p>
-//       ) : (
-//         <div style={{ 
-//           maxHeight: '500px', 
-//           overflowY: 'auto', 
-//           border: '1px solid rgba(255,255,255,0.1)',
-//           borderRadius: '8px' 
-//         }}>
-//           <table className="admin-table">
-//             <thead style={{ position: 'sticky', top: 0, background: '#1b3b80', zIndex: 5 }}>
-//               <tr>
-//                 <th>No. Sorteo</th>
-//                 <th>Fecha de Juego</th>
-//                 <th>Plan Asociado</th>
-//                 <th style={{ textAlign: 'center' }}>Acciones</th>
-//               </tr>
-//             </thead>
-//             <tbody>
-//               {sorteos.length === 0 ? (
-//                 <tr><td colSpan="4" style={{ textAlign: 'center' }}>No hay sorteos registrados</td></tr>
-//               ) : (
-//                 sorteos.map((s) => (
-//                   <tr key={s.id}>
-//                     <td><strong style={{color: 'var(--color-oro)'}}>{s.numero_sorteo}</strong></td>
-//                     <td>{formatearFechaTabla(s.fecha)}</td>
-//                     <td>{getPlanName(s.plan_id)}</td>
-//                     <td style={{ textAlign: 'center' }}>
-//                       <button 
-//                         onClick={() => prepareEdit(s)} 
-//                         style={{ background: 'none', border: 'none', color: '#ffc107', cursor: 'pointer', fontSize: '1.2rem' }}
-//                         title="Editar"
-//                       >
-//                         ✏️
-//                       </button>
-//                       <button 
-//                         onClick={() => handleDelete(s.id)} 
-//                         style={{ background: 'none', border: 'none', color: '#ff4d4d', cursor: 'pointer', fontSize: '1.2rem', marginLeft: '15px' }}
-//                         title="Eliminar"
-//                       >
-//                         🗑️
-//                       </button>
-//                     </td>
-//                   </tr>
-//                 ))
-//               )}
-//             </tbody>
-//           </table>
-//         </div>
-//       )}
-//     </div>
-//   );
-// };
-
-// export default ManageSorteo;
+export default ManageResultados;

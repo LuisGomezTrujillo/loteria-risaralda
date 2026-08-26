@@ -5,21 +5,25 @@ import textoLogo from '../assets/letras.png';
 import logoMZL from '../assets/logo-mzl-blanco.png';
 import API_URL from '../config';
 
-const UPDATE_INTERVAL_MS = 10000;
-const AUTO_SLIDE_DELAY_MS = 15000; 
+const UPDATE_INTERVAL_MS = 2000;
+const AUTO_SLIDE_DELAY_MS = 15000;
 
-const SLIDES_CONFIG = [
-  { id: 0, header: "$ 40 MILLONES", rango: [42, 51], type: 'lista' },
-  { id: 1, header: "$ 50 MILLONES", rango: [32, 41], type: 'lista' },
-  { id: 2, header: "$ 60 MILLONES", rango: [22, 31], type: 'lista' },
-  { id: 3, header: "$ 80 MILLONES", rango: [12, 21], type: 'lista' },
-  { id: 4, header: "$ 100 MILLONES", rango: [6, 11], type: 'lista' },
-  { id: 5, header: "$ 200 MILLONES", rango: [3, 5], type: 'lista' },
-  { id: 6, header: "$ 300 MILLONES", rango: [1, 2], type: 'lista' },
-  { id: 7, header: "$ 3 MIL MILLONES", type: 'mayor' },
-  { id: 8, header: "$ 2 MILLONES", type: 'gana_siempre' },
-  { id: 9, header: "PREMIO PROMOCIONAL", type: 'promocional' }
-];
+// Convierte el texto de "valor" que viene del backend (ej. "$ 40.000.000")
+// en un número comparable, para poder ordenar los slides de menor a mayor
+// sin tener que hardcodear los montos en el frontend.
+const parseValorNumerico = (valor) => {
+  if (!valor) return 0;
+  const digits = String(valor).replace(/[^\d]/g, '');
+  return digits ? parseInt(digits, 10) : 0;
+};
+
+// Estas 3 categorías se identifican por el título del premio (son roles
+// estructurales del plan: el premio mayor, el "gana siempre" y el
+// promocional), no por su valor. Cada una usa una plantilla visual propia,
+// así que se separan del resto antes de agrupar por valor.
+const esMayor = (p) => p.titulo.toLowerCase().includes('mayor');
+const esGanaSiempre = (p) => p.titulo.toLowerCase().includes('gana');
+const esPromocional = (p) => p.titulo.toLowerCase().includes('promocional');
 
 const ResultadosPage = () => {
   const [todosPremios, setTodosPremios] = useState([]);
@@ -70,25 +74,58 @@ const ResultadosPage = () => {
     return () => { clearInterval(dInt); clearInterval(tInt); };
   }, [fetchData]);
 
-  // --- LÓGICA DE CONTENIDO ---
-  const content = useMemo(() => {
-    const config = SLIDES_CONFIG[currentSlide];
-    if (config.type === 'mayor') return { type: 'mayor', header: config.header, data: todosPremios.find(p => p.titulo.toLowerCase().includes('mayor')) };
-    if (config.type === 'gana_siempre') return { type: 'gana_siempre', header: config.header, data: todosPremios.find(p => p.titulo.toLowerCase().includes('gana')) };
-    if (config.type === 'promocional') return { type: 'promocional', header: config.header, data: todosPremios.find(p => p.titulo.toLowerCase().includes('promocional')) };
+  // --- AGRUPACIÓN AUTOMÁTICA DE SLIDES POR VALOR (datos del backend) ---
+  const slides = useMemo(() => {
+    const mayor = todosPremios.find(esMayor);
+    const ganaSiempre = todosPremios.find(esGanaSiempre);
+    const promocional = todosPremios.find(esPromocional);
 
-    const [min, max] = config.rango;
-    const filtrados = todosPremios.filter(p => {
-      const match = p.titulo.match(/(\d+)/);
-      const num = match ? parseInt(match[0], 10) : 0;
-      return !p.titulo.toLowerCase().includes('mayor') && !p.titulo.toLowerCase().includes('gana') && !p.titulo.toLowerCase().includes('promocional') && num >= min && num <= max;
-    }).sort((a, b) => {
-        const nA = a.titulo.match(/(\d+)/);
-        const nB = b.titulo.match(/(\d+)/);
-        return (nB ? parseInt(nB[0]) : 0) - (nA ? parseInt(nA[0]) : 0);
+    const regulares = todosPremios.filter(
+      p => !esMayor(p) && !esGanaSiempre(p) && !esPromocional(p)
+    );
+
+    // Agrupa los premios "seco" que comparten el mismo valor (tal cual viene
+    // del backend) en un único slide, en lugar de rangos fijos en el frontend.
+    const grupos = new Map();
+    regulares.forEach(p => {
+      const clave = (p.valor && String(p.valor).trim()) || p.titulo;
+      if (!grupos.has(clave)) grupos.set(clave, []);
+      grupos.get(clave).push(p);
     });
-    return { type: 'lista', header: config.header, data: filtrados };
-  }, [currentSlide, todosPremios]);
+
+    const slidesLista = Array.from(grupos.entries())
+      .map(([valor, premios]) => ({
+        type: 'lista',
+        header: valor,
+        // Orden ascendente: el premio con el número más alto (el último
+        // ingresado dentro del grupo) queda en la fila de abajo.
+        data: [...premios].sort((a, b) => {
+          const nA = a.titulo.match(/(\d+)/);
+          const nB = b.titulo.match(/(\d+)/);
+          return (nA ? parseInt(nA[0], 10) : 0) - (nB ? parseInt(nB[0], 10) : 0);
+        }),
+      }))
+      .sort((a, b) => parseValorNumerico(a.header) - parseValorNumerico(b.header));
+
+    const slidesEspeciales = [];
+    if (mayor) {
+      slidesEspeciales.push({ type: 'mayor', header: mayor.valor || mayor.titulo, data: mayor });
+    }
+    if (ganaSiempre) {
+      slidesEspeciales.push({ type: 'gana_siempre', header: ganaSiempre.valor || ganaSiempre.titulo, data: ganaSiempre });
+    }
+    if (promocional) {
+      slidesEspeciales.push({ type: 'promocional', header: promocional.valor || promocional.titulo, data: promocional });
+    }
+
+    return [...slidesLista, ...slidesEspeciales];
+  }, [todosPremios]);
+
+  // El contenido del slide actual, cuidando que el índice siga siendo
+  // válido si la cantidad de slides cambia (ej. al llegar datos nuevos).
+  const content = useMemo(() => {
+    return slides[currentSlide] || slides[0] || { type: 'lista', header: '', data: [] };
+  }, [slides, currentSlide]);
 
   // --- VALIDACIÓN DE COMPLETITUD ---
   const isComplete = useMemo(() => {
@@ -101,9 +138,9 @@ const ResultadosPage = () => {
 
   // --- CONTROL DEL SLIDER (PRO) ---
   const handleNext = useCallback(() => {
-    setCurrentSlide(prev => (prev < SLIDES_CONFIG.length - 1 ? prev + 1 : 0));
+    setCurrentSlide(prev => (slides.length > 0 && prev < slides.length - 1 ? prev + 1 : 0));
     setSlideTimeRemaining(null); // Reset visual inmediato
-  }, []);
+  }, [slides.length]);
 
   useEffect(() => {
     // 1. Limpiar cualquier intervalo previo si cambia el estado o el slide
@@ -284,9 +321,9 @@ const ResultadosPage = () => {
             <span>V: {lastUpdate.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'})}</span>
           </div>
           <div className="footer-nav">
-            <button className="nav-btn" onClick={() => { if(slideIntervalRef.current) clearInterval(slideIntervalRef.current); setCurrentSlide(p => (p > 0 ? p - 1 : SLIDES_CONFIG.length - 1)); }}>◀</button>
+            <button className="nav-btn" onClick={() => { if(slideIntervalRef.current) clearInterval(slideIntervalRef.current); setCurrentSlide(p => (p > 0 ? p - 1 : slides.length - 1)); }}>◀</button>
             <div className="nav-dots">
-              {SLIDES_CONFIG.map(s => <span key={s.id} className={`dot ${s.id === currentSlide ? 'active' : ''}`} />)}
+              {slides.map((s, idx) => <span key={idx} className={`dot ${idx === currentSlide ? 'active' : ''}`} />)}
             </div>
             <button className="nav-btn" onClick={() => { if(slideIntervalRef.current) clearInterval(slideIntervalRef.current); handleNext(); }}>▶</button>
           </div>
@@ -300,7 +337,6 @@ const ResultadosPage = () => {
 };
 
 export default ResultadosPage;
-
 // import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 // import axios from 'axios';
 // import logoMoneda from '../assets/logo.png';
@@ -309,19 +345,24 @@ export default ResultadosPage;
 // import API_URL from '../config';
 
 // const UPDATE_INTERVAL_MS = 10000;
-// const AUTO_SLIDE_DELAY_MS = 15000; 
+// const AUTO_SLIDE_DELAY_MS = 15000;
 
-// const SLIDES_CONFIG = [
-//   { id: 0, header: "$ 40 MILLONES", rango: [42, 51], type: 'lista' },
-//   { id: 1, header: "$ 50 MILLONES", rango: [32, 41], type: 'lista' },
-//   { id: 2, header: "$ 60 MILLONES", rango: [22, 31], type: 'lista' },
-//   { id: 3, header: "$ 80 MILLONES", rango: [12, 21], type: 'lista' },
-//   { id: 4, header: "$ 100 MILLONES", rango: [6, 11], type: 'lista' },
-//   { id: 5, header: "$ 200 MILLONES", rango: [3, 5], type: 'lista' },
-//   { id: 6, header: "$ 300 MILLONES", rango: [1, 2], type: 'lista' },
-//   { id: 7, header: "$ 3 MIL MILLONES", type: 'mayor' },
-//   { id: 8, header: "$ 2 MILLONES", type: 'gana_siempre' }
-// ];
+// // Convierte el texto de "valor" que viene del backend (ej. "$ 40.000.000")
+// // en un número comparable, para poder ordenar los slides de menor a mayor
+// // sin tener que hardcodear los montos en el frontend.
+// const parseValorNumerico = (valor) => {
+//   if (!valor) return 0;
+//   const digits = String(valor).replace(/[^\d]/g, '');
+//   return digits ? parseInt(digits, 10) : 0;
+// };
+
+// // Estas 3 categorías se identifican por el título del premio (son roles
+// // estructurales del plan: el premio mayor, el "gana siempre" y el
+// // promocional), no por su valor. Cada una usa una plantilla visual propia,
+// // así que se separan del resto antes de agrupar por valor.
+// const esMayor = (p) => p.titulo.toLowerCase().includes('mayor');
+// const esGanaSiempre = (p) => p.titulo.toLowerCase().includes('gana');
+// const esPromocional = (p) => p.titulo.toLowerCase().includes('promocional');
 
 // const ResultadosPage = () => {
 //   const [todosPremios, setTodosPremios] = useState([]);
@@ -372,24 +413,56 @@ export default ResultadosPage;
 //     return () => { clearInterval(dInt); clearInterval(tInt); };
 //   }, [fetchData]);
 
-//   // --- LÓGICA DE CONTENIDO ---
-//   const content = useMemo(() => {
-//     const config = SLIDES_CONFIG[currentSlide];
-//     if (config.type === 'mayor') return { type: 'mayor', header: config.header, data: todosPremios.find(p => p.titulo.toLowerCase().includes('mayor')) };
-//     if (config.type === 'gana_siempre') return { type: 'gana_siempre', header: config.header, data: todosPremios.find(p => p.titulo.toLowerCase().includes('gana')) };
-    
-//     const [min, max] = config.rango;
-//     const filtrados = todosPremios.filter(p => {
-//       const match = p.titulo.match(/(\d+)/);
-//       const num = match ? parseInt(match[0], 10) : 0;
-//       return !p.titulo.toLowerCase().includes('mayor') && !p.titulo.toLowerCase().includes('gana') && num >= min && num <= max;
-//     }).sort((a, b) => {
-//         const nA = a.titulo.match(/(\d+)/);
-//         const nB = b.titulo.match(/(\d+)/);
-//         return (nB ? parseInt(nB[0]) : 0) - (nA ? parseInt(nA[0]) : 0);
+//   // --- AGRUPACIÓN AUTOMÁTICA DE SLIDES POR VALOR (datos del backend) ---
+//   const slides = useMemo(() => {
+//     const mayor = todosPremios.find(esMayor);
+//     const ganaSiempre = todosPremios.find(esGanaSiempre);
+//     const promocional = todosPremios.find(esPromocional);
+
+//     const regulares = todosPremios.filter(
+//       p => !esMayor(p) && !esGanaSiempre(p) && !esPromocional(p)
+//     );
+
+//     // Agrupa los premios "seco" que comparten el mismo valor (tal cual viene
+//     // del backend) en un único slide, en lugar de rangos fijos en el frontend.
+//     const grupos = new Map();
+//     regulares.forEach(p => {
+//       const clave = (p.valor && String(p.valor).trim()) || p.titulo;
+//       if (!grupos.has(clave)) grupos.set(clave, []);
+//       grupos.get(clave).push(p);
 //     });
-//     return { type: 'lista', header: config.header, data: filtrados };
-//   }, [currentSlide, todosPremios]);
+
+//     const slidesLista = Array.from(grupos.entries())
+//       .map(([valor, premios]) => ({
+//         type: 'lista',
+//         header: valor,
+//         data: [...premios].sort((a, b) => {
+//           const nA = a.titulo.match(/(\d+)/);
+//           const nB = b.titulo.match(/(\d+)/);
+//           return (nB ? parseInt(nB[0], 10) : 0) - (nA ? parseInt(nA[0], 10) : 0);
+//         }),
+//       }))
+//       .sort((a, b) => parseValorNumerico(a.header) - parseValorNumerico(b.header));
+
+//     const slidesEspeciales = [];
+//     if (mayor) {
+//       slidesEspeciales.push({ type: 'mayor', header: mayor.valor || mayor.titulo, data: mayor });
+//     }
+//     if (ganaSiempre) {
+//       slidesEspeciales.push({ type: 'gana_siempre', header: ganaSiempre.valor || ganaSiempre.titulo, data: ganaSiempre });
+//     }
+//     if (promocional) {
+//       slidesEspeciales.push({ type: 'promocional', header: promocional.valor || promocional.titulo, data: promocional });
+//     }
+
+//     return [...slidesLista, ...slidesEspeciales];
+//   }, [todosPremios]);
+
+//   // El contenido del slide actual, cuidando que el índice siga siendo
+//   // válido si la cantidad de slides cambia (ej. al llegar datos nuevos).
+//   const content = useMemo(() => {
+//     return slides[currentSlide] || slides[0] || { type: 'lista', header: '', data: [] };
+//   }, [slides, currentSlide]);
 
 //   // --- VALIDACIÓN DE COMPLETITUD ---
 //   const isComplete = useMemo(() => {
@@ -402,9 +475,9 @@ export default ResultadosPage;
 
 //   // --- CONTROL DEL SLIDER (PRO) ---
 //   const handleNext = useCallback(() => {
-//     setCurrentSlide(prev => (prev < SLIDES_CONFIG.length - 1 ? prev + 1 : 0));
+//     setCurrentSlide(prev => (slides.length > 0 && prev < slides.length - 1 ? prev + 1 : 0));
 //     setSlideTimeRemaining(null); // Reset visual inmediato
-//   }, []);
+//   }, [slides.length]);
 
 //   useEffect(() => {
 //     // 1. Limpiar cualquier intervalo previo si cambia el estado o el slide
@@ -542,6 +615,21 @@ export default ResultadosPage;
 //               </div>
 //             </div>
 //           )}
+//           {content.type === 'promocional' && content.data && (
+//             <div className="card-list promo-theme">
+//               <div className="card-header-list">{content.header}</div>
+//               <div className="card-body-list single-item-centered">
+//                 <table className="table-prizes">
+//                   <tbody>
+//                     <tr>
+//                       <td className="td-label" style={{fontSize: '5vh', color: '#ddd'}}>{content.data.titulo}</td>
+//                       <td className="td-number">{renderNumero(content.data.numero, content.data.balotas, false)}</td>
+//                     </tr>
+//                   </tbody>
+//                 </table>
+//               </div>
+//             </div>
+//           )}
 //           {content.type === 'lista' && (
 //             <div className="card-list">
 //               <div className="card-header-list">{content.header}</div>
@@ -570,9 +658,9 @@ export default ResultadosPage;
 //             <span>V: {lastUpdate.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'})}</span>
 //           </div>
 //           <div className="footer-nav">
-//             <button className="nav-btn" onClick={() => { if(slideIntervalRef.current) clearInterval(slideIntervalRef.current); setCurrentSlide(p => (p > 0 ? p - 1 : SLIDES_CONFIG.length - 1)); }}>◀</button>
+//             <button className="nav-btn" onClick={() => { if(slideIntervalRef.current) clearInterval(slideIntervalRef.current); setCurrentSlide(p => (p > 0 ? p - 1 : slides.length - 1)); }}>◀</button>
 //             <div className="nav-dots">
-//               {SLIDES_CONFIG.map(s => <span key={s.id} className={`dot ${s.id === currentSlide ? 'active' : ''}`} />)}
+//               {slides.map((s, idx) => <span key={idx} className={`dot ${idx === currentSlide ? 'active' : ''}`} />)}
 //             </div>
 //             <button className="nav-btn" onClick={() => { if(slideIntervalRef.current) clearInterval(slideIntervalRef.current); handleNext(); }}>▶</button>
 //           </div>

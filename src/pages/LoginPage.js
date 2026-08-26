@@ -34,7 +34,7 @@ export default function LoginPage() {
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={handleSubmit}>
-        <h1 className="login-titulo">Lotería de Manizales</h1>
+        <h1 className="login-titulo">Lotería del Risaralda</h1>
         <p className="login-subtitulo">Iniciar sesión</p>
 
         <label className="login-label" htmlFor="username">Usuario</label>

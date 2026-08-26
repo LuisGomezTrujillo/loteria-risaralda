@@ -1,9 +1,15 @@
-/* --- VARIABLES GLOBALES --- */
+/* --- VARIABLES GLOBALES ---
+   Paleta basada en el verde institucional de Lotería del Risaralda
+   (verde bosque oscuro) combinado con el dorado ya usado en el sistema. */
 :root {
-  --color-fondo: #0a1a4a;
+  --color-fondo: #12291d;          /* Verde bosque oscuro (borde del degradado) */
+  --color-fondo-medio: #1e4a34;    /* Verde medio (centro del degradado / paneles) */
+  --color-fondo-claro: #275c40;    /* Verde claro (hover, resaltados) */
+  --color-panel: #17331f;          /* Fondo de inputs y tarjetas */
+  --color-panel-focus: #1f4a30;    /* Fondo de inputs/tarjetas en foco */
   --color-oro: #d4af37;
   --color-oro-brillo: #f9e38d;
-  --color-verde: #28a745;
+  --color-verde: #2fbf65;
   --color-rojo: #dc3545;
   --balota-bg: radial-gradient(circle at 30% 30%, #ffffff 0%, #dcdcdc 50%, #808080 100%);
   --safe-margin: 3%;
@@ -21,7 +27,7 @@ body, html {
   padding: 0;
   width: 100%;
   height: 100%;
-  background: radial-gradient(circle at center, #1b3b80 0%, var(--color-fondo) 100%);
+  background: radial-gradient(circle at center, var(--color-fondo-medio) 0%, var(--color-fondo) 100%);
   font-family: 'Helvetica', 'Arial', sans-serif;
   color: white;
   overflow-x: hidden;
@@ -92,7 +98,7 @@ body, html {
   min-height: 100vh;
   padding: 40px 40px 140px 40px; /* Padding bottom extra grande para el footer */
   box-sizing: border-box;
-  background: rgba(10, 26, 74, 0.98);
+  background: rgba(18, 41, 29, 0.98);
   color: white;
 }
 
@@ -126,7 +132,7 @@ body, html {
   font-size: 1.8rem; /* Texto interno gigante */
   border-radius: 12px;
   border: 3px solid #555;
-  background: #1e2a5a;
+  background: var(--color-panel);
   color: white;
   outline: none;
   box-sizing: border-box;
@@ -135,7 +141,7 @@ body, html {
 
 .form-input:focus, .form-select:focus {
   border-color: var(--color-oro);
-  background: #25356e;
+  background: var(--color-panel-focus);
   box-shadow: 0 0 15px rgba(212, 175, 55, 0.5);
 }
 
@@ -198,7 +204,7 @@ body, html {
   transition: all 0.2s;
 }
 
-.btn-primary { background: var(--color-oro); color: #0a1a4a; }
+.btn-primary { background: var(--color-oro); color: #12291d; }
 .btn-primary:hover { background: #e5c145; transform: scale(1.05); }
 .btn-secondary { background: #444; color: white; }
 .btn-danger { background: var(--color-rojo); color: white; }
@@ -211,7 +217,7 @@ body, html {
   left: 0;
   width: 100%;
   padding: 30px;
-  background: linear-gradient(to top, #0a1a4a 95%, transparent);
+  background: linear-gradient(to top, #12291d 95%, transparent);
   text-align: center;
   z-index: 100;
   border-top: 2px solid rgba(212, 175, 55, 0.3);
@@ -383,14 +389,10 @@ body, html {
   font-weight: bold;
 }
 
-/* --- VARIABLES GLOBALES --- */
+/* (Variables ya declaradas arriba en el :root principal; se mantiene solo
+   --bg-gradient aquí para no romper referencias existentes.) */
 :root {
-  --color-fondo: #0a1a4a;
-  --color-oro: #d4af37;
-  --color-oro-brillo: #f9e38d;
-  --color-verde: #28a745;
-  --color-rojo: #dc3545;
-  --bg-gradient: radial-gradient(circle at center, #1b3b80 0%, var(--color-fondo) 100%);
+  --bg-gradient: radial-gradient(circle at center, var(--color-fondo-medio) 0%, var(--color-fondo) 100%);
 }
 
 
@@ -508,7 +510,7 @@ body, html {
 .card-header-list {
   /* GRADIENTE DORADO ORIGINAL */
   background: linear-gradient(90deg, #d4af37 0%, #f9e38d 50%, #d4af37 100%);
-  color: #0a1a4a; /* Azul oscuro para contraste */
+  color: #12291d; /* Verde oscuro para contraste */
   font-size: 3.5vh;
   font-weight: 900;
   text-align: center;
@@ -552,7 +554,7 @@ body, html {
 .card-header-huge {
   /* GRADIENTE DORADO ORIGINAL */
   background: linear-gradient(90deg, #d4af37 0%, #f9e38d 50%, #d4af37 100%);
-  color: #0a1a4a;
+  color: #12291d;
   font-size: 5vh;
   font-weight: 900;
   text-align: center;
@@ -752,7 +754,7 @@ body, html {
   text-align: center;
   font-size: 2.6rem;
   font-weight: 900;
-  color: #0a1a4a;
+  color: #12291d;
   background: white;
   border: 3px solid transparent;
   border-radius: 12px;
