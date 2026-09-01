@@ -51,6 +51,7 @@ const ResultadosPage = () => {
       const merged = resPlan.data.premios.map(premio => {
         const resultado = resultadosJugados.find(r => r.premio === premio.titulo);
         return {
+          id: premio.id,
           titulo: premio.titulo,
           valor: premio.valor,
           balotas: premio.cantidad_balotas,
@@ -97,13 +98,12 @@ const ResultadosPage = () => {
       .map(([valor, premios]) => ({
         type: 'lista',
         header: valor,
-        // Orden ascendente: el premio con el número más alto (el último
-        // ingresado dentro del grupo) queda en la fila de abajo.
-        data: [...premios].sort((a, b) => {
-          const nA = a.titulo.match(/(\d+)/);
-          const nB = b.titulo.match(/(\d+)/);
-          return (nA ? parseInt(nA[0], 10) : 0) - (nB ? parseInt(nB[0], 10) : 0);
-        }),
+        // Orden según el id real del premio (el orden en que fue
+        // ingresado en el plan desde el backend), no un número adivinado
+        // a partir del título. Así, premios sin número en el nombre
+        // (ej. "SECO ESCALERA MILLONARIA") quedan en el lugar correcto
+        // respecto a los demás premios del mismo valor.
+        data: [...premios].sort((a, b) => (a.id ?? 0) - (b.id ?? 0)),
       }))
       .sort((a, b) => parseValorNumerico(a.header) - parseValorNumerico(b.header));
 
@@ -171,25 +171,41 @@ const ResultadosPage = () => {
 
 
   // --- HELPERS DE RENDER ---
-  const renderNumero = (numero, cantidadBalotas, isHuge = false) => {
-    if (!numero) return <span className="num-placeholder">{"-".repeat(cantidadBalotas || 4)}</span>;
+
+  // TVs HD antiguas (Panasonic de +3 años) suelen tener poco espacio
+  // vertical útil (resolución más baja, a veces con overscan que recorta
+  // los bordes). Con pocas filas el diseño original (pensado para 1-5
+  // premios) se ve bien, pero con 11 filas (ej. el grupo "30 MILLONES")
+  // el texto se desborda o se corta. Esta función reduce fuente y
+  // espaciado progresivamente según la cantidad de filas del slide.
+  const getEscalaFila = (cantidadFilas) => {
+    const filas = Math.max(cantidadFilas, 1);
+    if (filas <= 4) return { fontSize: '4vh', numeroSize: '5.6vh', padding: '1.2vh 1.2vw' };
+    if (filas <= 6) return { fontSize: '3.2vh', numeroSize: '4.6vh', padding: '0.9vh 1.2vw' };
+    if (filas <= 8) return { fontSize: '2.6vh', numeroSize: '3.8vh', padding: '0.6vh 1.2vw' };
+    return { fontSize: '2.1vh', numeroSize: '3.1vh', padding: '0.4vh 1.2vw' };
+  };
+
+  const renderNumero = (numero, cantidadBalotas, isHuge = false, numeroSize = null) => {
+    const overrideStyle = numeroSize ? { fontSize: numeroSize } : undefined;
+    if (!numero) return <span className="num-placeholder" style={overrideStyle}>{"-".repeat(cantidadBalotas || 4)}</span>;
     const n = String(numero);
     const principal = n.length > 4 ? n.substring(0, n.length - 3) : n;
     const serie = n.length > 4 ? n.substring(n.length - 3) : "";
     return (
       <div className={`numero-container ${isHuge ? 'huge-layout' : 'list-layout'}`}>
-        <span className="num-principal">{principal}</span>
-        {serie && <span className="num-serie">{serie}</span>}
+        <span className="num-principal" style={overrideStyle}>{principal}</span>
+        {serie && <span className="num-serie" style={overrideStyle}>{serie}</span>}
       </div>
     );
   };
 
   // Separa el texto del título ("Seco") del número de premio seco, para
   // poder destacar el número en tamaño grande sin que se rompa a otra línea.
-  const renderTituloPremio = (titulo) => {
+  const renderTituloPremio = (titulo, fontSize = null) => {
     const match = titulo.match(/(\d+)/);
     if (!match) {
-      return <span className="titulo-premio">{titulo}</span>;
+      return <span className="titulo-premio" style={fontSize ? { fontSize } : undefined}>{titulo}</span>;
     }
     const numero = match[0];
     const antes = titulo.slice(0, match.index).trim();
@@ -203,6 +219,7 @@ const ResultadosPage = () => {
           gap: '0.35em',
           whiteSpace: 'nowrap',
           maxWidth: '100%',
+          fontSize: fontSize || undefined,
         }}
       >
         {antes && <span className="titulo-texto">{antes}</span>}
@@ -293,26 +310,31 @@ const ResultadosPage = () => {
               </div>
             </div>
           )}
-          {content.type === 'lista' && (
-            <div className="card-list">
-              <div className="card-header-list">{content.header}</div>
-              <div className="card-body-list">
-                <table className="table-prizes">
-                  <tbody>
-                    {content.data.map((p, idx) => (
-                      <tr key={idx}>
-                        <td className="td-label" style={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
-                          {renderTituloPremio(p.titulo)}
-                        </td>
-                        <td className="td-number" style={{ verticalAlign: 'middle' }}>{renderNumero(p.numero, p.balotas, false)}</td>
-                      </tr>
-                    ))}
-                    {content.data.length === 0 && <tr><td colSpan="2" style={{ textAlign: 'center', padding: '20px' }}>Por jugar...</td></tr>}
-                  </tbody>
-                </table>
+          {content.type === 'lista' && (() => {
+            const escala = getEscalaFila(content.data.length);
+            return (
+              <div className="card-list">
+                <div className="card-header-list">{content.header}</div>
+                <div className="card-body-list">
+                  <table className="table-prizes">
+                    <tbody>
+                      {content.data.map((p, idx) => (
+                        <tr key={idx}>
+                          <td className="td-label" style={{ whiteSpace: 'nowrap', verticalAlign: 'middle', padding: escala.padding }}>
+                            {renderTituloPremio(p.titulo, escala.fontSize)}
+                          </td>
+                          <td className="td-number" style={{ verticalAlign: 'middle', padding: escala.padding }}>
+                            {renderNumero(p.numero, p.balotas, false, escala.numeroSize)}
+                          </td>
+                        </tr>
+                      ))}
+                      {content.data.length === 0 && <tr><td colSpan="2" style={{ textAlign: 'center', padding: '20px' }}>Por jugar...</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
 
         <footer className="footer-controls">
@@ -337,6 +359,8 @@ const ResultadosPage = () => {
 };
 
 export default ResultadosPage;
+
+
 // import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 // import axios from 'axios';
 // import logoMoneda from '../assets/logo.png';
@@ -344,7 +368,7 @@ export default ResultadosPage;
 // import logoMZL from '../assets/logo-mzl-blanco.png';
 // import API_URL from '../config';
 
-// const UPDATE_INTERVAL_MS = 10000;
+// const UPDATE_INTERVAL_MS = 2000;
 // const AUTO_SLIDE_DELAY_MS = 15000;
 
 // // Convierte el texto de "valor" que viene del backend (ej. "$ 40.000.000")
@@ -436,10 +460,12 @@ export default ResultadosPage;
 //       .map(([valor, premios]) => ({
 //         type: 'lista',
 //         header: valor,
+//         // Orden ascendente: el premio con el número más alto (el último
+//         // ingresado dentro del grupo) queda en la fila de abajo.
 //         data: [...premios].sort((a, b) => {
 //           const nA = a.titulo.match(/(\d+)/);
 //           const nB = b.titulo.match(/(\d+)/);
-//           return (nB ? parseInt(nB[0], 10) : 0) - (nA ? parseInt(nA[0], 10) : 0);
+//           return (nA ? parseInt(nA[0], 10) : 0) - (nB ? parseInt(nB[0], 10) : 0);
 //         }),
 //       }))
 //       .sort((a, b) => parseValorNumerico(a.header) - parseValorNumerico(b.header));
