@@ -502,23 +502,23 @@ body, html {
 
 /* AJUSTES DE ANCHO Y ESPACIO ENTRE TÍTULO Y NÚMERO */
 .td-label {
-  width: 70%; /* Mayor proporción para el texto */
+  width: 68%;
   text-align: left;
   color: #ddd;
   font-weight: bold;
   font-size: var(--font-size-label);
-  padding: var(--padding-row) 0.2vw var(--padding-row) 0.8vw; /* Espaciado ajustado */
+  padding: var(--padding-row) 0.1vw var(--padding-row) 0.5vw;
   text-transform: uppercase;
   overflow: hidden;
   box-sizing: border-box;
   vertical-align: middle;
-  white-space: nowrap; /* Evita que el título se divida en 2 líneas */
+  white-space: nowrap;
 }
 
 .td-number {
-  width: 30%; /* Proporción menor ajustada para los números */
+  width: 32%;
   text-align: right;
-  padding: var(--padding-row) 0.8vw var(--padding-row) 0.2vw; /* Espaciado ajustado */
+  padding: var(--padding-row) 0.5vw var(--padding-row) 0.1vw;
   box-sizing: border-box;
   vertical-align: middle;
 }
@@ -526,7 +526,7 @@ body, html {
 .flex-title {
   display: inline-flex;
   align-items: center;
-  flex-wrap: nowrap; /* Mantiene el título en una sola línea */
+  flex-wrap: nowrap;
   gap: 0.2em;
   max-width: 100%;
   line-height: 1.1;
@@ -610,7 +610,7 @@ body, html {
 }
 
 .list-layout .num-principal {
-  margin-right: 0.4em;
+  margin-right: 0.3em;
   color: white;
 }
 
@@ -697,17 +697,17 @@ body, html {
 /* PANTALLAS O DISPOSITIVOS MEDIANOS Y TV HD ENTRADA (ej. 720p / Laptops) */
 @media (max-height: 800px) {
   :root {
-    --font-size-label: clamp(0.85rem, 1.8vh, 1.8rem);
-    --font-size-num: clamp(1rem, 2.6vh, 2.6rem);
+    --font-size-label: clamp(0.8rem, 1.8vh, 1.8rem);
+    --font-size-num: clamp(0.95rem, 2.6vh, 2.6rem);
     --padding-row: 0.3vh;
   }
 }
 
-/* PANTALLAS O PANELES PEQUEÑOS (ANCHO MENOR A 1024px O ALTURA MENOR A 600px) */
+/* PANTALLAS O PANELES PEQUEÑOS EN GENERAL (ANCHO PEQUEÑO O ALTURA RESTRINGIDA) */
 @media (max-width: 1024px), (max-height: 600px) {
   :root {
-    --font-size-label: clamp(0.75rem, 1.5vh, 1.4rem);
-    --font-size-num: clamp(0.95rem, 2.2vh, 2rem);
+    --font-size-label: clamp(0.65rem, 1.5vh, 1.4rem);
+    --font-size-num: clamp(0.85rem, 2.2vh, 2rem);
     --padding-row: 0.2vh;
   }
 
@@ -728,11 +728,59 @@ body, html {
   }
 
   .td-label {
-    width: 72%;
+    width: 70%;
   }
 
   .td-number {
-    width: 28%;
+    width: 30%;
+  }
+}
+
+/* =========================================
+   MODO MÓVIL EN PORTRAIT / VERTICAL
+   ========================================= */
+@media (max-width: 600px), (orientation: portrait) and (max-width: 768px) {
+  :root {
+    /* Tipografía súper compacta para no encimarse */
+    --font-size-label: clamp(0.55rem, 2.2vw, 0.85rem);
+    --font-size-num: clamp(0.7rem, 2.8vw, 1rem);
+    --padding-row: 1px;
+  }
+
+  .card-header-list {
+    font-size: clamp(0.9rem, 4vw, 1.4rem);
+    padding: 0.4vh 0.2vw;
+  }
+
+  .td-label {
+    width: 65%;
+    padding-left: 2px;
+    padding-right: 2px;
+    letter-spacing: -0.3px;
+  }
+
+  .td-number {
+    width: 35%;
+    padding-left: 2px;
+    padding-right: 2px;
+  }
+
+  .list-layout .num-principal {
+    margin-right: 0.15em;
+  }
+
+  .main-content {
+    padding: 0.5vh 0.5vw 0 0.5vw;
+  }
+
+  .card-list, .card-huge {
+    width: 100%;
+    border-radius: 10px;
+  }
+
+  .huge-layout .num-principal,
+  .huge-layout .num-serie {
+    font-size: clamp(2rem, 8vw, 4rem);
   }
 }
 
