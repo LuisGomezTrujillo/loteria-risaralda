@@ -3,7 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Link, useNavigate } from 'react
 import './App.css';
 
 // Importación de Iconos
-import { FaTv, FaClipboardList, FaTicketAlt, FaTrophy, FaVial, FaFlask, FaListAlt, FaSignInAlt, FaSignOutAlt } from 'react-icons/fa';
+import { FaTv, FaClipboardList, FaTicketAlt, FaTrophy, FaVial, FaFlask, FaListAlt, FaSignInAlt, FaSignOutAlt, FaFileExcel } from 'react-icons/fa';
 import { MdEditDocument } from 'react-icons/md';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -18,6 +18,7 @@ import ResultadosPage from './pages/ResultadosPage';
 import IngresoTubosPage from './pages/IngresoTubosPage';
 import PreSorteosPage from './pages/PreSorteosPage';
 import ManagePruebas from './pages/ManagePruebas';
+import ProcesarSorteoPage from './pages/ProcesarSorteoPage';
 
 // Roles que pueden operar el sistema (crear/editar sorteos, resultados, tubos, pruebas)
 const ROLES_OPERATIVOS = ['admin', 'operador'];
@@ -59,10 +60,6 @@ const NavMenu = () => {
             <FaTicketAlt size={24} />
           </Link>
 
-          <Link to="/admin/resultados" title="REGISTRAR RESULTADOS" style={{color:'white'}}>
-            <MdEditDocument size={24} />
-          </Link>
-
           <Link to="/admin/tubos" title="TUBOS POR URNA" style={{color:'white'}}>
             <FaVial size={24} />
           </Link>
@@ -73,6 +70,14 @@ const NavMenu = () => {
 
           <Link to="/admin/gestion-pruebas" title="GESTIÓN DE PRUEBAS (TABLA)" style={{color:'white'}}>
             <FaListAlt size={24} />
+          </Link>
+
+          <Link to="/admin/resultados" title="REGISTRAR RESULTADOS" style={{color:'white'}}>
+            <MdEditDocument size={24} />
+          </Link>
+
+          <Link to="/admin/procesar-sorteo" title="PROCESAR SORTEO (EXCEL)" style={{color:'white'}}>
+            <FaFileExcel size={24} />
           </Link>
         </>
       )}
@@ -131,6 +136,7 @@ function App() {
             <Route path="/admin/resultados" element={<ManageResultados />} />
             <Route path="/admin/tubos" element={<IngresoTubosPage />} />
             <Route path="/admin/presorteos" element={<PreSorteosPage />} />
+            <Route path="/admin/procesar-sorteo" element={<ProcesarSorteoPage />} />
           </Route>
 
           {/* --- Ruta de solo consulta: cualquier rol autenticado --- */}
